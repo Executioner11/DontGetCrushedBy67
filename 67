@@ -13,6 +13,7 @@ local char = player.Character or player.CharacterAdded:Wait()
 local humanoid = char:WaitForChild("Humanoid")
 local hrp = char:WaitForChild("HumanoidRootPart")
 local uis = game:GetService("UserInputService")
+local runService = game:GetService("RunService")
 
 -- Settings
 local positions = { Vector3.new(-1863.68, -50.96, 295.65) }
@@ -26,14 +27,14 @@ local Window = Fluent:CreateWindow({
     Title = "Auto Win",
     SubTitle = "Script Automation",
     TabWidth = 160,
-    Size = UDim2.fromOffset(480, 440),
+    Size = UDim2.fromOffset(480, 500),
     Acrylic = true,
     Theme = "Dark",
     MinimizeKey = Enum.KeyCode.RightControl
 })
 local Tabs = { Main = Window:AddTab({ Title = "Main", Icon = "home" }) }
 
--- Add Fluent controls
+-- WalkSpeed Slider
 local SpeedSlider = Tabs.Main:AddSlider("WalkSpeed", {
     Title = "WalkSpeed",
     Min = 8,
@@ -42,11 +43,22 @@ local SpeedSlider = Tabs.Main:AddSlider("WalkSpeed", {
     Rounding = 0
 })
 
+-- JumpPower Slider
+local JumpPowerSlider = Tabs.Main:AddSlider("JumpPower", {
+    Title = "Jump Power",
+    Min = 50,
+    Max = 500,
+    Default = humanoid.JumpPower,
+    Rounding = 0
+})
+
+-- Auto Teleport Toggle
 local AutoTeleportToggle = Tabs.Main:AddToggle("AutoTeleport", {
     Title = "Auto Teleport",
     Default = false
 })
 
+-- Flight Toggle + Speed Slider
 local FlyToggle = Tabs.Main:AddToggle("Fly", {
     Title = "Flight",
     Default = false
@@ -60,8 +72,15 @@ local FlySpeedSlider = Tabs.Main:AddSlider("FlySpeed", {
     Rounding = 0
 })
 
+-- Infinite Jump Toggle
 local InfiniteJumpToggle = Tabs.Main:AddToggle("InfiniteJump", {
     Title = "Infinite Jump",
+    Default = false
+})
+
+-- Noclip Toggle
+local NoclipToggle = Tabs.Main:AddToggle("Noclip", {
+    Title = "Noclip",
     Default = false
 })
 
@@ -73,7 +92,7 @@ statusGui.ResetOnSpawn = false
 statusGui.Parent = playerGui
 
 local statusFrame = Instance.new("Frame")
-statusFrame.Size = UDim2.new(0, 220, 0, 72)
+statusFrame.Size = UDim2.new(0, 220, 0, 92)
 statusFrame.Position = UDim2.new(0.5, 260, 0.5, -170)
 statusFrame.AnchorPoint = Vector2.new(0, 0)
 statusFrame.BackgroundTransparency = 0.12
@@ -115,7 +134,6 @@ timerLabel.Text = "Next teleport in: --"
 -- Make statusFrame draggable
 local dragging = false
 local dragInput, mousePos, framePos
-
 local function update(input)
     local delta = input.Position - mousePos
     statusFrame.Position = UDim2.new(
@@ -123,7 +141,6 @@ local function update(input)
         0, framePos.Y + delta.Y
     )
 end
-
 statusFrame.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
         dragging = true
@@ -136,25 +153,34 @@ statusFrame.InputBegan:Connect(function(input)
         end)
     end
 end)
-
 statusFrame.InputChanged:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseMovement then
         dragInput = input
     end
 end)
-
 uis.InputChanged:Connect(function(input)
-    if input == dragInput and dragging then
-        update(input)
-    end
+    if input == dragInput and dragging then update(input) end
 end)
 
--- WalkSpeed slider
+-- WalkSpeed and JumpPower
 SpeedSlider:OnChanged(function(value)
-    local charNow = player.Character
-    if charNow then
-        local hum = charNow:FindFirstChildOfClass("Humanoid")
-        if hum then hum.WalkSpeed = value end
+    if humanoid then humanoid.WalkSpeed = value end
+end)
+
+JumpPowerSlider:OnChanged(function(value)
+    if humanoid then humanoid.JumpPower = value end
+end)
+
+-- Noclip loop
+runService.Stepped:Connect(function()
+    if NoclipToggle.Value then
+        for _, part in pairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then part.CanCollide = false end
+        end
+    else
+        for _, part in pairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then part.CanCollide = true end
+        end
     end
 end)
 
@@ -168,14 +194,11 @@ local function teleportLoop()
                 task.wait(1)
                 timeLeft = timeLeft - 1
             end
-
             if running then
-                local curChar = player.Character
-                local curHrp = curChar and curChar:FindFirstChild("HumanoidRootPart")
+                local curHrp = char:FindFirstChild("HumanoidRootPart")
                 if curHrp then
                     curHrp.CFrame = CFrame.new(positions[index])
                 end
-
                 index = index + 1
                 if index > #positions then index = 1 end
             end
@@ -197,16 +220,13 @@ AutoTeleportToggle:OnChanged(function(value)
     end
 end)
 
--- Flight logic with full mobile support
+-- Flight logic (desktop + mobile support)
 local flying = false
-local bv, bg
-local flyUpButton, flyDownButton
+local bv, bg, flyUpButton, flyDownButton
 
 FlyToggle:OnChanged(function(value)
     flying = value
-    local charNow = player.Character
-    if not charNow then return end
-    local hrpNow = charNow:FindFirstChild("HumanoidRootPart")
+    local hrpNow = char:FindFirstChild("HumanoidRootPart")
     if not hrpNow then return end
     local cam = workspace.CurrentCamera
 
@@ -232,7 +252,7 @@ FlyToggle:OnChanged(function(value)
     if flying then
         bv = Instance.new("BodyVelocity")
         bv.MaxForce = Vector3.new(1e5,1e5,1e5)
-        bv.Velocity = Vector3.new(0,0,0)
+        bv.Velocity = Vector3.zero
         bv.Parent = hrpNow
 
         bg = Instance.new("BodyGyro")
@@ -243,34 +263,22 @@ FlyToggle:OnChanged(function(value)
         task.spawn(function()
             while flying and hrpNow.Parent do
                 local dir = Vector3.zero
-                -- Desktop movement
                 if not uis.TouchEnabled then
-                    if uis:IsKeyDown(Enum.KeyCode.W) then dir = dir + hrpNow.CFrame.LookVector end
-                    if uis:IsKeyDown(Enum.KeyCode.S) then dir = dir - hrpNow.CFrame.LookVector end
-                    if uis:IsKeyDown(Enum.KeyCode.A) then dir = dir - hrpNow.CFrame.RightVector end
-                    if uis:IsKeyDown(Enum.KeyCode.D) then dir = dir + hrpNow.CFrame.RightVector end
-                    if uis:IsKeyDown(Enum.KeyCode.Space) then dir = dir + Vector3.new(0,1,0) end
-                    if uis:IsKeyDown(Enum.KeyCode.LeftShift) then dir = dir - Vector3.new(0,1,0) end
+                    if uis:IsKeyDown(Enum.KeyCode.W) then dir += hrpNow.CFrame.LookVector end
+                    if uis:IsKeyDown(Enum.KeyCode.S) then dir -= hrpNow.CFrame.LookVector end
+                    if uis:IsKeyDown(Enum.KeyCode.A) then dir -= hrpNow.CFrame.RightVector end
+                    if uis:IsKeyDown(Enum.KeyCode.D) then dir += hrpNow.CFrame.RightVector end
+                    if uis:IsKeyDown(Enum.KeyCode.Space) then dir += Vector3.new(0,1,0) end
+                    if uis:IsKeyDown(Enum.KeyCode.LeftShift) then dir -= Vector3.new(0,1,0) end
                 else
-                    -- Mobile movement: camera direction + buttons
-                    local camForward = cam.CFrame.LookVector
-                    local camRight = cam.CFrame.RightVector
-                    -- virtual buttons are Up/Down for vertical only
-                    if flyUpButton and flyUpButton:IsDescendantOf(playerGui) and flyUpButton:IsPressed() then
-                        dir = dir + Vector3.new(0,1,0)
-                    end
-                    if flyDownButton and flyDownButton:IsDescendantOf(playerGui) and flyDownButton:IsPressed() then
-                        dir = dir - Vector3.new(0,1,0)
-                    end
-                    -- Optional: touch joystick movement integration here
+                    if flyUpButton and flyUpButton:IsPressed() then dir += Vector3.new(0,1,0) end
+                    if flyDownButton and flyDownButton:IsPressed() then dir -= Vector3.new(0,1,0) end
                 end
-
                 if dir.Magnitude > 0 then
                     bv.Velocity = bv.Velocity:Lerp(dir.Unit * FlySpeedSlider.Value, 0.2)
                 else
                     bv.Velocity = bv.Velocity:Lerp(Vector3.zero, 0.2)
                 end
-
                 task.wait()
             end
         end)
@@ -282,19 +290,19 @@ FlyToggle:OnChanged(function(value)
     end
 end)
 
--- Infinite Jump
+-- Infinite Jump with JumpPower support
 InfiniteJumpToggle:OnChanged(function(value)
-    uis.JumpRequest:Connect(function()
-        if value then
-            local charNow = player.Character
-            if charNow then
-                local hum = charNow:FindFirstChildOfClass("Humanoid")
-                if hum then
-                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                end
+    if InfiniteJumpToggle._conn then
+        InfiniteJumpToggle._conn:Disconnect()
+    end
+    if value then
+        InfiniteJumpToggle._conn = uis.JumpRequest:Connect(function()
+            if humanoid then
+                humanoid.JumpPower = JumpPowerSlider.Value
+                humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
             end
-        end
-    end)
+        end)
+    end
 end)
 
 -- Keep GUI in sync across respawns
@@ -302,8 +310,8 @@ player.CharacterAdded:Connect(function(c)
     char = c
     humanoid = c:WaitForChild("Humanoid")
     hrp = c:WaitForChild("HumanoidRootPart")
-    local speedVal = SpeedSlider and SpeedSlider.Value or humanoid.WalkSpeed
-    if humanoid then humanoid.WalkSpeed = speedVal end
+    humanoid.WalkSpeed = SpeedSlider.Value
+    humanoid.JumpPower = JumpPowerSlider.Value
 end)
 
-print("Fluent Auto Win UI (full mobile + smooth flight + infinite jump) loaded")
+print("Fluent Auto Win UI (JumpPower + Infinite Jump + Noclip + Flight + AutoTeleport) loaded")
